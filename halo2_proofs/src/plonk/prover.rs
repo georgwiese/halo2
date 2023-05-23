@@ -27,48 +27,13 @@ use crate::{
         commitment::{Blind, CommitmentScheme, Params, Prover},
         Basis, Coeff, ExtendedLagrangeCoeff, LagrangeCoeff, Polynomial, ProverQuery,
     },
+    Timer,
 };
 use crate::{
     poly::batch_invert_assigned,
     transcript::{EncodedChallenge, TranscriptWrite},
 };
 use group::prime::PrimeCurveAffine;
-
-struct Timer {
-    start: Instant,
-    current: Instant,
-    log: Vec<(String, Duration)>,
-}
-
-impl Timer {
-    fn new() -> Timer {
-        Timer {
-            start: Instant::now(),
-            current: Instant::now(),
-            log: vec![],
-        }
-    }
-
-    fn checkpoint(&mut self, name: &str) {
-        let elapsed = self.current.elapsed();
-        self.log.push((name.to_string(), elapsed));
-        self.current = Instant::now();
-    }
-
-    fn finalize(&self) {
-        let total = self.start.elapsed();
-        println!("Total: {}.{:03}", total.as_secs(), total.subsec_millis());
-        for (name, elapsed) in &self.log {
-            println!(
-                "{}: {}.{:03} ({:.1}%)",
-                name,
-                elapsed.as_secs(),
-                elapsed.subsec_millis(),
-                100.0 * elapsed.as_secs_f64() / total.as_secs_f64()
-            );
-        }
-    }
-}
 
 /// This creates a proof for the provided `circuit` when given the public
 /// parameters `params` and the proving key [`ProvingKey`] that was
@@ -93,7 +58,7 @@ pub fn create_proof<
 where
     Scheme::Scalar: WithSmallOrderMulGroup<3> + FromUniformBytes<64>,
 {
-    let mut timer = Timer::new();
+    let mut timer = Timer::new("create_proof");
     for instance in instances.iter() {
         if instance.len() != pk.vk.cs.num_instance_columns {
             return Err(Error::InvalidInstances);
@@ -119,7 +84,6 @@ where
         pub instance_polys: Vec<Polynomial<C::Scalar, Coeff>>,
     }
 
-    timer.checkpoint("Configuration");
     let instance: Vec<InstanceSingle<Scheme::Curve>> = instances
         .iter()
         .map(|instance| -> Result<InstanceSingle<Scheme::Curve>, Error> {
@@ -174,8 +138,6 @@ where
             })
         })
         .collect::<Result<Vec<_>, _>>()?;
-
-    timer.checkpoint("Instance interpolation");
 
     #[derive(Clone)]
     struct AdviceSingle<C: CurveAffine, B: Basis> {
@@ -327,8 +289,6 @@ where
         }
     }
 
-    timer.checkpoint("type definitions");
-
     let (advice, challenges) = {
         let mut advice = vec![
             AdviceSingle::<Scheme::Curve, LagrangeCoeff> {
@@ -379,7 +339,7 @@ where
                     config.clone(),
                     meta.constants.clone(),
                 )?;
-                timer.checkpoint("After synthesize");
+                timer.checkpoint("synthesize");
 
                 let mut advice_values = batch_invert_assigned::<Scheme::Scalar>(
                     witness
