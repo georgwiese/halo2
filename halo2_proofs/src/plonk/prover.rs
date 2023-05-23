@@ -6,7 +6,7 @@ use std::collections::BTreeSet;
 use std::env::var;
 use std::ops::RangeTo;
 use std::sync::atomic::AtomicUsize;
-use std::time::Instant;
+use std::time::{Duration, Instant};
 use std::{collections::HashMap, iter, mem, sync::atomic::Ordering};
 
 use super::{
@@ -34,6 +34,42 @@ use crate::{
 };
 use group::prime::PrimeCurveAffine;
 
+struct Timer {
+    start: Instant,
+    current: Instant,
+    log: Vec<(String, Duration)>,
+}
+
+impl Timer {
+    fn new() -> Timer {
+        Timer {
+            start: Instant::now(),
+            current: Instant::now(),
+            log: vec![],
+        }
+    }
+
+    fn checkpoint(&mut self, name: &str) {
+        let elapsed = self.current.elapsed();
+        self.log.push((name.to_string(), elapsed));
+        self.current = Instant::now();
+    }
+
+    fn finalize(&self) {
+        let total = self.start.elapsed();
+        println!("Total: {}.{:03}", total.as_secs(), total.subsec_millis());
+        for (name, elapsed) in &self.log {
+            println!(
+                "{}: {}.{:03} ({:.1}%)",
+                name,
+                elapsed.as_secs(),
+                elapsed.subsec_millis(),
+                100.0 * elapsed.as_secs_f64() / total.as_secs_f64()
+            );
+        }
+    }
+}
+
 /// This creates a proof for the provided `circuit` when given the public
 /// parameters `params` and the proving key [`ProvingKey`] that was
 /// generated previously for the same circuit. The provided `instances`
@@ -57,6 +93,7 @@ pub fn create_proof<
 where
     Scheme::Scalar: WithSmallOrderMulGroup<3> + FromUniformBytes<64>,
 {
+    let mut timer = Timer::new();
     for instance in instances.iter() {
         if instance.len() != pk.vk.cs.num_instance_columns {
             return Err(Error::InvalidInstances);
@@ -82,6 +119,7 @@ where
         pub instance_polys: Vec<Polynomial<C::Scalar, Coeff>>,
     }
 
+    timer.checkpoint("Configuration");
     let instance: Vec<InstanceSingle<Scheme::Curve>> = instances
         .iter()
         .map(|instance| -> Result<InstanceSingle<Scheme::Curve>, Error> {
@@ -136,6 +174,8 @@ where
             })
         })
         .collect::<Result<Vec<_>, _>>()?;
+
+    timer.checkpoint("Instance interpolation");
 
     #[derive(Clone)]
     struct AdviceSingle<C: CurveAffine, B: Basis> {
@@ -287,6 +327,8 @@ where
         }
     }
 
+    timer.checkpoint("type definitions");
+
     let (advice, challenges) = {
         let mut advice = vec![
             AdviceSingle::<Scheme::Curve, LagrangeCoeff> {
@@ -329,6 +371,7 @@ where
                     _marker: std::marker::PhantomData,
                 };
 
+                timer.checkpoint("Before synthesize");
                 // Synthesize the circuit to obtain the witness and other information.
                 ConcreteCircuit::FloorPlanner::synthesize(
                     &mut witness,
@@ -336,6 +379,7 @@ where
                     config.clone(),
                     meta.constants.clone(),
                 )?;
+                timer.checkpoint("After synthesize");
 
                 let mut advice_values = batch_invert_assigned::<Scheme::Scalar>(
                     witness
@@ -406,6 +450,8 @@ where
         (advice, challenges)
     };
 
+    timer.checkpoint("Compute advice and challenges");
+
     // Sample theta challenge for keeping lookup columns linearly independent
     let theta: ChallengeTheta<_> = transcript.squeeze_challenge_scalar();
 
@@ -436,6 +482,8 @@ where
         })
         .collect::<Result<Vec<_>, _>>()?;
 
+    timer.checkpoint("Compute lookups");
+
     // Sample beta challenge
     let beta: ChallengeBeta<_> = transcript.squeeze_challenge_scalar();
 
@@ -462,6 +510,8 @@ where
         })
         .collect::<Result<Vec<_>, _>>()?;
 
+    timer.checkpoint("Compute permutations");
+
     let lookups: Vec<Vec<lookup::prover::Committed<Scheme::Curve>>> = lookups
         .into_iter()
         .map(|lookups| -> Result<Vec<_>, _> {
@@ -473,8 +523,12 @@ where
         })
         .collect::<Result<Vec<_>, _>>()?;
 
+    timer.checkpoint("Compute lookup products");
+
     // Commit to the vanishing argument's random polynomial for blinding h(x_3)
     let vanishing = vanishing::Argument::commit(params, domain, &mut rng, transcript)?;
+
+    timer.checkpoint("Compute vanishing argument");
 
     // Obtain challenge for keeping all separate gates linearly independent
     let y: ChallengeY<_> = transcript.squeeze_challenge_scalar();
@@ -498,6 +552,8 @@ where
         )
         .collect();
 
+    timer.checkpoint("Compute advice polys");
+
     // Evaluate the h(X) polynomial
     let h_poly = pk.ev.evaluate_h(
         pk,
@@ -517,6 +573,8 @@ where
         &lookups,
         &permutations,
     );
+
+    timer.checkpoint("Compute h_poly");
 
     // Construct the vanishing argument's h(X) commitments
     let vanishing = vanishing.construct(params, domain, h_poly, &mut rng, transcript)?;
@@ -650,8 +708,14 @@ where
         // We query the h(X) polynomial at x
         .chain(vanishing.open(x));
 
+    timer.checkpoint("Before create_proof");
+
     let prover = P::new(params);
-    prover
+    let result = prover
         .create_proof(rng, transcript, instances)
-        .map_err(|_| Error::ConstraintSystemFailure)
+        .map_err(|_| Error::ConstraintSystemFailure);
+
+    timer.checkpoint("create_proof");
+    timer.finalize();
+    result
 }
