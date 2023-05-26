@@ -2152,6 +2152,41 @@ impl<F: Field> ConstraintSystem<F> {
         (0..=max_phase).map(sealed::Phase)
     }
 
+    /// Print degree overview
+    pub fn print_degree_overview(&self) {
+        println!("\n === Degree overview:");
+        println!(
+            "  Minimum degree required by permutation argument: {}",
+            self.permutation.required_degree()
+        );
+        let degree_for_lookups = self
+            .lookups
+            .iter()
+            .map(|l| l.required_degree())
+            .max()
+            .unwrap_or(1);
+        println!(
+            "  Minimum degree required by lookup arguments: {}",
+            degree_for_lookups
+        );
+        for lookup in self.lookups.iter() {
+            println!("    {}: {}", lookup.name, lookup.required_degree(),);
+        }
+
+        let degree_for_gates = self
+            .gates
+            .iter()
+            .flat_map(|gate| gate.polynomials().iter().map(|poly| poly.degree()))
+            .max()
+            .unwrap_or(0);
+        println!("  Minimum degree required by gates: {}", degree_for_gates);
+
+        let minimum_degree = self.minimum_degree.unwrap_or(1);
+        println!("  Minimum degree required by circuit: {}", minimum_degree);
+
+        println!("  Total degree: {}", self.degree());
+    }
+
     /// Compute the degree of the constraint system (the maximum degree of all
     /// constraints).
     pub fn degree(&self) -> usize {

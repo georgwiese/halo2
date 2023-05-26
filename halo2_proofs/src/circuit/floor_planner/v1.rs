@@ -116,6 +116,11 @@ impl FloorPlanner for V1 {
         }
 
         // - Assign the constants.
+        println!(
+            "constant positions: {}, plan constants: {}",
+            constant_positions().count(),
+            plan.constants.len()
+        );
         if constant_positions().count() < plan.constants.len() {
             return Err(Error::NotEnoughColumnsForConstants);
         }
