@@ -52,7 +52,7 @@ backtrace = { version = "0.3", optional = true }
 rayon = "1.5.1"
 ff = "0.13"
 group = "0.13"
-halo2curves = { git = 'https://github.com/privacy-scaling-explorations/halo2curves', rev = "a92a1304ebf5c09465089a5a8e0306e1f7900bf8" }
+halo2curves = { git = 'https://github.com/privacy-scaling-explorations/halo2curves', tag = "0.3.3" }
 rand_core = { version = "0.6", default-features = false }
 tracing = "0.1"
 blake2b_simd = "1"
@@ -68,7 +68,9 @@ assert_matches = "1.5"
 criterion = "0.3"
 gumdrop = "0.8"
 proptest = "1"
-rand_core = { version = "0.6", default-features = false, features = ["getrandom"] }
+rand_core = { version = "0.6", default-features = false, features = [
+    "getrandom",
+] }
 
 [target.'cfg(all(target_arch = "wasm32", target_os = "unknown"))'.dev-dependencies]
 getrandom = { version = "0.2", features = ["js"] }
